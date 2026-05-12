@@ -19,6 +19,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "sonner": "catalog:",
+    "svix": "^1.93.0",
     "zod": "catalog:"
   },
   "devDependencies": {

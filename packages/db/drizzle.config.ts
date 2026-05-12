@@ -9,7 +9,10 @@ export default defineConfig({
 	schema: "./src/schema",
 	out: "./src/migrations",
 	dialect: "postgresql",
+	casing: "snake_case",
 	dbCredentials: {
-		url: process.env.DATABASE_URL || "",
+		// Direct (non-pooler) URL — PgBouncer doesn't support the SET
+		// commands that drizzle-kit uses for push/generate/migrate.
+		url: process.env.DATABASE_URL_DIRECT ?? process.env.DATABASE_URL ?? "",
 	},
 });
