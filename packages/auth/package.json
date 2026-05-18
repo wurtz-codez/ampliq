@@ -1,0 +1,24 @@
+{
+  "name": "@ampliq/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@ampliq/db": "workspace:*",
+    "@ampliq/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ampliq/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

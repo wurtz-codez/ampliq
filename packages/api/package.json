@@ -1,0 +1,27 @@
+{
+  "name": "@ampliq/api",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@ampliq/auth": "workspace:*",
+    "@ampliq/db": "workspace:*",
+    "@ampliq/env": "workspace:*",
+    "@trpc/client": "catalog:",
+    "@trpc/server": "catalog:",
+    "dotenv": "catalog:",
+    "next": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ampliq/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
