@@ -2,6 +2,7 @@ import { Button } from "@ampliq/ui/components/button";
 import { Input } from "@ampliq/ui/components/input";
 import { Label } from "@ampliq/ui/components/label";
 import { useForm } from "@tanstack/react-form";
+import { Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import z from "zod";
@@ -151,6 +152,32 @@ export default function SignUpForm({
 						</Button>
 					)}
 				</form.Subscribe>
+
+				<div className="relative my-6">
+					<div className="absolute inset-0 flex items-center">
+						<span className="w-full border-t" />
+					</div>
+					<div className="relative flex justify-center text-xs uppercase">
+						<span className="bg-background px-2 text-muted-foreground">
+							Or continue with
+						</span>
+					</div>
+				</div>
+
+				<Button
+					className="w-full"
+					onClick={async () => {
+						await authClient.signIn.social({
+							provider: "google",
+							callbackURL: "/dashboard",
+						});
+					}}
+					type="button"
+					variant="outline"
+				>
+					<Mail className="mr-2 h-4 w-4" />
+					Google
+				</Button>
 			</form>
 
 			<div className="mt-4 text-center">
