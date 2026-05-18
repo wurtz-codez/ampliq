@@ -1,51 +1,40 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
 
-import { trpc } from "@/utils/trpc";
-
-const TITLE_TEXT = `
- ██████╗ ███████╗████████╗████████╗███████╗██████╗
- ██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝██╔══██╗
- ██████╔╝█████╗     ██║      ██║   █████╗  ██████╔╝
- ██╔══██╗██╔══╝     ██║      ██║   ██╔══╝  ██╔══██╗
- ██████╔╝███████╗   ██║      ██║   ███████╗██║  ██║
- ╚═════╝ ╚══════╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝
-
- ████████╗    ███████╗████████╗ █████╗  ██████╗██╗  ██╗
- ╚══██╔══╝    ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝
-    ██║       ███████╗   ██║   ███████║██║     █████╔╝
-    ██║       ╚════██║   ██║   ██╔══██║██║     ██╔═██╗
-    ██║       ███████║   ██║   ██║  ██║╚██████╗██║  ██╗
-    ╚═╝       ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
- `;
+import { AboutSection } from "@/components/landing/about-section";
+import { ContactSection } from "@/components/landing/contact-section";
+import { FeaturesSection } from "@/components/landing/features-section";
+import { Footer } from "@/components/landing/footer";
+import { GlassNavbar } from "@/components/landing/glass-navbar";
+import { HeroSection } from "@/components/landing/hero-section";
+import { HowItWorksSection } from "@/components/landing/how-it-works-section";
 
 export default function Home() {
-	const healthCheck = useQuery(trpc.healthCheck.queryOptions());
-
 	return (
-		<div className="container mx-auto max-w-3xl px-4 py-2">
-			<pre className="overflow-x-auto font-mono text-sm">{TITLE_TEXT}</pre>
-			<div className="grid gap-6">
-				<section className="rounded-lg border p-4">
-					<h2 className="mb-2 font-medium">API Status</h2>
-					<div className="flex items-center gap-2">
-						<div
-							className={`h-2 w-2 rounded-full ${healthCheck.data ? "bg-green-500" : "bg-red-500"}`}
-						/>
-						<span className="text-muted-foreground text-sm">
-							{(() => {
-								if (healthCheck.isLoading) {
-									return "Checking...";
-								}
-								if (healthCheck.data) {
-									return "Connected";
-								}
-								return "Disconnected";
-							})()}
-						</span>
-					</div>
-				</section>
+		<div className="min-h-screen overflow-x-hidden bg-background text-foreground">
+			{/* Animated Background Elements */}
+			<div className="fixed inset-0 -z-10 overflow-hidden">
+				<div className="absolute top-0 -left-20 h-96 w-96 animate-pulse rounded-full bg-primary/10 blur-[120px]" />
+				<div
+					className="absolute -right-20 bottom-0 h-96 w-96 animate-pulse rounded-full bg-primary/10 blur-[120px]"
+					style={{ animationDelay: "1s" }}
+				/>
+				<div className="absolute top-1/2 left-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-[150px]" />
 			</div>
+
+			{/* Navigation */}
+			<GlassNavbar />
+
+			{/* Main Content */}
+			<main>
+				<HeroSection />
+				<FeaturesSection />
+				<HowItWorksSection />
+				<AboutSection />
+				<ContactSection />
+			</main>
+
+			{/* Footer */}
+			<Footer />
 		</div>
 	);
 }
