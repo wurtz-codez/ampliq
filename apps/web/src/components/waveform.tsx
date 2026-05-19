@@ -11,6 +11,7 @@ import WaveSurfer from "wavesurfer.js";
 
 interface WaveformProps {
 	audioUrl: string;
+	initialTime?: number;
 	isPlaying: boolean;
 	onFinish?: () => void;
 	onPlayStateChange?: (playing: boolean) => void;
@@ -22,6 +23,7 @@ interface WaveformProps {
 
 export interface WaveformHandle {
 	seekTo: (progress: number) => void;
+	seekToTime: (time: number) => void;
 }
 
 export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
@@ -31,6 +33,7 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			peaks,
 			isPlaying,
 			volume,
+			initialTime = 0,
 			onReady,
 			onFinish,
 			onTimeUpdate,
@@ -50,6 +53,11 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 						wavesurfer.current.seekTo(progress);
 					}
 				},
+				seekToTime: (time: number) => {
+					if (wavesurfer.current) {
+						wavesurfer.current.setTime(time);
+					}
+				},
 			}),
 			[]
 		);
@@ -60,6 +68,7 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			}
 
 			let destroyed = false;
+			let startFrom = initialTime;
 
 			let normalizedPeaks: number[] | undefined;
 			if (peaks) {
@@ -96,9 +105,14 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 					return;
 				}
 				setIsLoaded(true);
+
+				if (startFrom > 0) {
+					ws.setTime(startFrom);
+					startFrom = 0; // Only use once
+				}
+
 				onReady?.();
 
-				// Handle auto-play once ready if isPlaying is true
 				if (isPlaying) {
 					ws.play().catch(() => {
 						onPlayStateChange?.(false);
@@ -130,6 +144,13 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 				}
 			});
 
+			// Sync seeking with time update
+			ws.on("interaction", () => {
+				if (!destroyed) {
+					onTimeUpdate?.(ws.getCurrentTime());
+				}
+			});
+
 			return () => {
 				destroyed = true;
 				try {
@@ -146,6 +167,7 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			onTimeUpdate,
 			onPlayStateChange,
 			isPlaying,
+			initialTime,
 		]);
 
 		useEffect(() => {
@@ -157,7 +179,9 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 		useEffect(() => {
 			if (wavesurfer.current && isLoaded) {
 				if (isPlaying) {
-					wavesurfer.current.play();
+					wavesurfer.current.play().catch(() => {
+						// Ignore playback errors
+					});
 				} else {
 					wavesurfer.current.pause();
 				}

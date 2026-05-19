@@ -17,26 +17,9 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Waveform, type WaveformHandle } from "@/components/waveform";
-
-interface Track {
-	albumId: string;
-	albumImage: string;
-	albumName: string;
-	artistId: string;
-	artistName: string;
-	audio: string;
-	audioDownload: string;
-	audioDownloadAllowed: boolean;
-	duration: number;
-	id: string;
-	licenseUrl: string;
-	name: string;
-	releaseDate: string;
-	speed?: string;
-	waveform?: string;
-}
+import { type Track, usePlayerStore } from "@/store/use-player-store";
 
 interface SearchResponse {
 	total: number;
@@ -66,11 +49,27 @@ export default function HomePage({
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<Track[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [currentSong, setCurrentSong] = useState<Track | null>(null);
-	const [queue, setQueue] = useState<Track[]>([]);
-	const [isPlaying, setIsPlaying] = useState(false);
-	const [currentTime, setCurrentTime] = useState(0);
-	const [volume, setVolume] = useState(0.7);
+	const [hasHydrated, setHasHydrated] = useState(false);
+
+	const {
+		currentSong,
+		queue,
+		isPlaying,
+		currentTime,
+		volume,
+		setIsPlaying,
+		setCurrentTime,
+		setVolume,
+		addToQueue,
+		removeFromQueue,
+		playNow,
+		playNext,
+		playTrackFromQueue,
+	} = usePlayerStore();
+
+	useEffect(() => {
+		setHasHydrated(true);
+	}, []);
 
 	const waveformRef = useRef<WaveformHandle | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,68 +104,33 @@ export default function HomePage({
 		[search]
 	);
 
-	const addToQueue = useCallback((track: Track) => {
-		setQueue((prev) => {
-			if (prev.some((t) => t.id === track.id)) {
-				return prev;
-			}
-			return [...prev, track];
-		});
-	}, []);
-
-	const playNow = useCallback((track: Track) => {
-		setCurrentSong((prev) => {
-			if (prev?.id === track.id) {
-				waveformRef.current?.seekTo(0);
-				setIsPlaying(true);
-				return prev;
-			}
-			setIsPlaying(true);
-			return track;
-		});
-	}, []);
-
-	const playNext = useCallback(() => {
-		setQueue((prev) => {
-			if (prev.length === 0) {
-				setCurrentSong(null);
-				setIsPlaying(false);
-				return prev;
-			}
-			const [next, ...rest] = prev;
-			setCurrentSong(next);
-			setIsPlaying(true);
-			return rest;
-		});
-	}, []);
-
 	const playPrev = useCallback(() => {
 		if (currentSong) {
 			waveformRef.current?.seekTo(0);
 		}
 	}, [currentSong]);
 
-	const togglePlayPause = useCallback(() => {
-		setIsPlaying((prev) => !prev);
-	}, []);
-
-	const removeFromQueue = useCallback((index: number) => {
-		setQueue((prev) => prev.filter((_, i) => i !== index));
-	}, []);
-
-	const playTrack = useCallback((index: number) => {
-		setQueue((prev) => {
-			const track = prev[index];
-			if (!track) {
-				return prev;
+	const handlePlayNow = useCallback(
+		(track: Track) => {
+			if (currentSong?.id === track.id) {
+				waveformRef.current?.seekTo(0);
+				setIsPlaying(true);
+			} else {
+				playNow(track);
 			}
-			setCurrentSong(track);
-			setIsPlaying(true);
-			return prev.filter((_, i) => i !== index);
-		});
-	}, []);
+		},
+		[currentSong, playNow, setIsPlaying]
+	);
+
+	const togglePlayPause = useCallback(() => {
+		setIsPlaying(!isPlaying);
+	}, [isPlaying, setIsPlaying]);
 
 	const totalDuration = queue.reduce((acc, track) => acc + track.duration, 0);
+
+	if (!hasHydrated) {
+		return null; // Or a loading skeleton
+	}
 
 	return (
 		<>
@@ -277,6 +241,7 @@ export default function HomePage({
 							{currentSong ? (
 								<Waveform
 									audioUrl={currentSong.audio}
+									initialTime={currentTime}
 									isPlaying={isPlaying}
 									onFinish={playNext}
 									onPlayStateChange={setIsPlaying}
@@ -410,7 +375,7 @@ export default function HomePage({
 										<div className="flex shrink-0 gap-2">
 											<button
 												className="h-8 rounded-lg bg-[#c0c1ff] px-3 font-bold text-[#1000a9] text-[11px] transition-all hover:brightness-110 active:scale-95"
-												onClick={() => playNow(track)}
+												onClick={() => handlePlayNow(track)}
 												type="button"
 											>
 												Play
@@ -532,7 +497,7 @@ export default function HomePage({
 							>
 								<button
 									className="flex flex-1 cursor-pointer items-center gap-4 text-left outline-none"
-									onClick={() => playTrack(idx)}
+									onClick={() => playTrackFromQueue(idx)}
 									type="button"
 								>
 									<div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#1f1f27]">
