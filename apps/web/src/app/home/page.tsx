@@ -1,9 +1,6 @@
 import { auth } from "@ampliq/auth";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-
-import { GlassNavbar } from "@/components/landing/glass-navbar";
-
 import HomePage from "./home";
 
 export default async function HomeRoute() {
@@ -16,11 +13,8 @@ export default async function HomeRoute() {
 	}
 
 	return (
-		<div className="flex min-h-screen flex-col bg-background">
-			<GlassNavbar />
-			<main className="container mx-auto px-6 pt-32 pb-20">
-				<HomePage session={session} />
-			</main>
+		<div className="flex min-h-screen flex-col bg-[#13131b]">
+			<HomePage session={session} />
 		</div>
 	);
 }

@@ -15,8 +15,12 @@ interface JamendoTrack {
 	id: string;
 	image: string;
 	license_ccurl: string;
+	musicinfo?: {
+		speed?: "low" | "mid" | "high" | "verylow" | "veryhigh";
+	};
 	name: string;
 	releasedate: string;
+	waveform?: string;
 }
 
 interface JamendoResponse {
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest) {
 		limit: String(Math.min(Number(limit), 200)),
 		offset,
 		include: "musicinfo",
-		imagesize: "150",
+		imagesize: "200",
 		audioformat: "mp32",
 	});
 
@@ -76,6 +80,8 @@ export async function GET(request: NextRequest) {
 			audioDownloadAllowed: track.audiodownload_allowed,
 			releaseDate: track.releasedate,
 			licenseUrl: track.license_ccurl,
+			speed: track.musicinfo?.speed,
+			waveform: track.waveform,
 		}));
 
 		return NextResponse.json({
