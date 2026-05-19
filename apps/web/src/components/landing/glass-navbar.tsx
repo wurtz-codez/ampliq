@@ -28,7 +28,7 @@ export function GlassNavbar() {
 
 	const handleAuthClick = () => {
 		if (session) {
-			router.push("/dashboard");
+			router.push("/home");
 		} else {
 			router.push("/login");
 		}

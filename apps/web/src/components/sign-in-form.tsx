@@ -32,7 +32,7 @@ export default function SignInForm({
 				},
 				{
 					onSuccess: () => {
-						router.push("/dashboard");
+						router.push("/home");
 						toast.success("Sign in successful");
 					},
 					onError: (error) => {
@@ -144,7 +144,7 @@ export default function SignInForm({
 					onClick={async () => {
 						await authClient.signIn.social({
 							provider: "google",
-							callbackURL: "/dashboard",
+							callbackURL: "/home",
 						});
 					}}
 					type="button"
