@@ -73,6 +73,19 @@ export default function HomePage({
 
 	const waveformRef = useRef<WaveformHandle | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const timeThrottleRef = useRef<number>(0);
+
+	const handleTimeUpdate = useCallback(
+		(time: number) => {
+			// Throttle to avoid 60fps store writes
+			const now = Date.now();
+			if (now - timeThrottleRef.current > 200) {
+				timeThrottleRef.current = now;
+				setCurrentTime(time);
+			}
+		},
+		[setCurrentTime]
+	);
 
 	const search = useCallback(async (q: string) => {
 		if (q.trim().length === 0) {
@@ -245,7 +258,7 @@ export default function HomePage({
 									isPlaying={isPlaying}
 									onFinish={playNext}
 									onPlayStateChange={setIsPlaying}
-									onTimeUpdate={setCurrentTime}
+									onTimeUpdate={handleTimeUpdate}
 									peaks={currentSong.waveform}
 									ref={waveformRef}
 									volume={volume}
