@@ -184,10 +184,17 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 
 			return () => {
 				destroyed = true;
-				try {
-					ws.destroy();
-				} catch {
-					// Ignore AbortError when destroying during load
+				if (wavesurfer.current) {
+					const ws = wavesurfer.current;
+					wavesurfer.current = null;
+					// Use requestAnimationFrame to ensure we're not destroying in the middle of a render/event loop
+					requestAnimationFrame(() => {
+						try {
+							ws.destroy();
+						} catch {
+							// Ignore errors during destruction
+						}
+					});
 				}
 			};
 		}, [audioUrl, peaks]);

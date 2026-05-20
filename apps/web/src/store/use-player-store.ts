@@ -116,8 +116,6 @@ export const usePlayerStore = create<PlayerState>()(
 			partialize: (state) => ({
 				currentSong: state.currentSong,
 				queue: state.queue,
-				currentTime: state.currentTime,
-				isPlaying: state.isPlaying,
 				volume: state.volume,
 			}),
 		}

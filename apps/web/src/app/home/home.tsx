@@ -4,6 +4,7 @@ import type { auth } from "@ampliq/auth";
 import {
 	ListMusic,
 	ListPlus,
+	Loader2,
 	Mic,
 	Pause,
 	Play,
@@ -19,7 +20,11 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Waveform, type WaveformHandle } from "@/components/waveform";
+import { useYtDownload } from "@/hooks/use-yt-download";
+import { useYtSearch } from "@/hooks/use-yt-search";
 import { type Track, usePlayerStore } from "@/store/use-player-store";
+import { JamendoPanel } from "./jamendo-panel";
+import { YouTubeResults } from "./youtube-results";
 
 interface SearchResponse {
 	total: number;
@@ -46,10 +51,11 @@ export default function HomePage({
 	session: typeof auth.$Infer.Session;
 }) {
 	const router = useRouter();
-	const [query, setQuery] = useState("");
+	const [searchQuery, setSearchQuery] = useState("");
 	const [results, setResults] = useState<Track[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [hasHydrated, setHasHydrated] = useState(false);
+	const [activeTab, setActiveTab] = useState<"jamendo" | "youtube">("jamendo");
 
 	const {
 		currentSong,
@@ -67,17 +73,25 @@ export default function HomePage({
 		playTrackFromQueue,
 	} = usePlayerStore();
 
+	const { downloadStates, download: downloadYt } = useYtDownload();
+
+	const {
+		results: ytResults,
+		loading: ytLoading,
+		search: searchYt,
+	} = useYtSearch();
+
 	useEffect(() => {
 		setHasHydrated(true);
 	}, []);
 
 	const waveformRef = useRef<WaveformHandle | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const ytDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const timeThrottleRef = useRef<number>(0);
 
 	const handleTimeUpdate = useCallback(
 		(time: number) => {
-			// Throttle to avoid 60fps store writes
 			const now = Date.now();
 			if (now - timeThrottleRef.current > 200) {
 				timeThrottleRef.current = now;
@@ -117,6 +131,16 @@ export default function HomePage({
 		[search]
 	);
 
+	const debouncedYtSearch = useCallback(
+		(value: string) => {
+			if (ytDebounceRef.current) {
+				clearTimeout(ytDebounceRef.current);
+			}
+			ytDebounceRef.current = setTimeout(() => searchYt(value), 500);
+		},
+		[searchYt]
+	);
+
 	const playPrev = useCallback(() => {
 		if (currentSong) {
 			waveformRef.current?.seekTo(0);
@@ -139,10 +163,23 @@ export default function HomePage({
 		setIsPlaying(!isPlaying);
 	}, [isPlaying, setIsPlaying]);
 
+	const handleYtDownload = useCallback(
+		async (videoId: string): Promise<Track | undefined> => {
+			const track = await downloadYt(videoId);
+			if (track) {
+				addToQueue(track);
+				playNow(track);
+				return track;
+			}
+			return;
+		},
+		[downloadYt, playNow, addToQueue]
+	);
+
 	const totalDuration = queue.reduce((acc, track) => acc + track.duration, 0);
 
 	if (!hasHydrated) {
-		return null; // Or a loading skeleton
+		return null;
 	}
 
 	return (
@@ -177,21 +214,26 @@ export default function HomePage({
 						Ampliq
 					</span>
 				</div>
-				<div className="mx-8 hidden max-w-xl flex-1 md:flex">
-					<div className="group relative w-full">
-						<Search className="absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-[#c7c4d7] transition-colors group-focus-within:text-[#c0c1ff]" />
+
+				<div className="mx-4 flex flex-1 items-center gap-4 md:mx-8">
+					{/* Single Search Bar */}
+					<div className="group relative flex-1">
+						<Search className="absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-[#c7c4d7] transition-colors group-focus-within:text-[#c0c1ff]" />
 						<input
-							className="w-full rounded-full border-none bg-[#1b1b23] py-2.5 pr-4 pl-12 text-[#e4e1ed] text-[16px] outline-none transition-all placeholder:text-[#c7c4d7]/50 focus:ring-1 focus:ring-[#c0c1ff]/50"
+							className="w-full rounded-full border-none bg-[#1b1b23] py-2 pr-4 pl-10 text-[#e4e1ed] text-[14px] outline-none transition-all placeholder:text-[#c7c4d7]/50 focus:ring-1 focus:ring-[#c0c1ff]/50"
 							onChange={(e) => {
-								setQuery(e.target.value);
-								debouncedSearch(e.target.value);
+								const val = e.target.value;
+								setSearchQuery(val);
+								debouncedSearch(val);
+								debouncedYtSearch(val);
 							}}
-							placeholder="Search artists, tracks, moods..."
+							placeholder="Search for music on Jamendo & YouTube..."
 							type="text"
-							value={query}
+							value={searchQuery}
 						/>
 					</div>
 				</div>
+
 				<div className="flex items-center gap-4 text-[#e4e1ed]">
 					<div className="mr-2 hidden text-sm md:block">
 						{session.user.name}
@@ -210,6 +252,7 @@ export default function HomePage({
 			<main className="mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-5 pt-24 pb-24 text-[#e4e1ed] md:grid-cols-12 md:px-12 md:pr-[340px] md:pb-8">
 				{/* Left Column: Now Playing (60%) */}
 				<section className="flex flex-col gap-10 md:col-span-7">
+					{/* ... same as before ... */}
 					<div className="group relative">
 						<div className="absolute -inset-4 rounded-full bg-[#c0c1ff]/10 opacity-20 blur-3xl" />
 						<div className="glass-panel relative aspect-square w-full overflow-hidden rounded-2xl shadow-2xl shadow-[#c0c1ff]/10">
@@ -332,7 +375,7 @@ export default function HomePage({
 										}}
 										onKeyDown={(e) => {
 											if (e.key === "Enter" || e.key === " ") {
-												// Handle keyboard interaction if needed
+												// Handle keyboard interaction
 											}
 										}}
 										role="slider"
@@ -349,141 +392,83 @@ export default function HomePage({
 					</div>
 				</section>
 
-				{/* Right Column: Hum/Mix or Search Results */}
-				<section className="flex h-full flex-col gap-10 md:col-span-5">
-					{query.trim().length > 0 || results.length > 0 ? (
-						<div className="glass-panel flex flex-1 flex-col gap-4 overflow-hidden rounded-3xl border-[#c0c1ff]/10 p-6 shadow-[#c0c1ff]/5 shadow-lg">
-							<h2 className="font-bold text-[#c7c4d7] text-[11px] uppercase tracking-[0.2em]">
-								Search Results {loading && "..."}
-							</h2>
-							<div className="flex-1 space-y-2 overflow-y-auto pr-2">
-								{results?.map((track) => (
-									<div
-										className="group flex items-center gap-4 rounded-xl p-3 transition-all duration-200 hover:bg-[#34343d]/40"
-										key={track.id}
-									>
-										<div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#1f1f27]">
-											{track.albumImage ? (
-												<Image
-													alt={track.albumName}
-													className="h-full w-full object-cover"
-													fill
-													src={track.albumImage}
-													unoptimized
-												/>
-											) : (
-												<div className="flex h-full w-full items-center justify-center">
-													<Play className="h-5 w-5 text-[#c7c4d7]" />
-												</div>
-											)}
-										</div>
-										<div className="flex min-w-0 flex-1 flex-col justify-center">
-											<p className="truncate font-medium text-[#e4e1ed] text-[16px]">
-												{track.name}
-											</p>
-											<p className="truncate text-[#c7c4d7] text-[12px]">
-												{track.artistName}
-											</p>
-										</div>
-										<div className="flex shrink-0 gap-2">
-											<button
-												className="h-8 rounded-lg bg-[#c0c1ff] px-3 font-bold text-[#1000a9] text-[11px] transition-all hover:brightness-110 active:scale-95"
-												onClick={() => handlePlayNow(track)}
-												type="button"
-											>
-												Play
-											</button>
-											<button
-												className="h-8 rounded-lg border border-[#464554] px-3 font-bold text-[#c7c4d7] text-[11px] transition-all hover:border-[#c0c1ff]/30 hover:bg-[#c0c1ff]/10 hover:text-[#c0c1ff] active:scale-95"
-												onClick={() => addToQueue(track)}
-												type="button"
-											>
-												+ Queue
-											</button>
-										</div>
-									</div>
-								))}
-								{results.length === 0 && !loading && (
-									<p className="mt-10 text-center text-[#c7c4d7]">
-										No tracks found.
-									</p>
-								)}
-							</div>
-						</div>
-					) : (
-						<>
-							{/* Hum Activation Hero */}
-							<div className="glass-panel flex flex-1 flex-col items-center justify-center gap-6 rounded-3xl border-[#c0c1ff]/5 p-10 text-center">
-								<h2 className="font-bold text-[#c7c4d7] text-[11px] uppercase tracking-[0.2em]">
-									Hum Discovery
-								</h2>
-								<div className="relative">
-									<button
-										className="pulse-ring relative z-10 flex h-32 w-32 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-110 active:scale-90"
-										type="button"
-									>
-										<Mic className="h-12 w-12 fill-current" />
-									</button>
-									<div className="absolute inset-0 -z-10 scale-150 rounded-full bg-[#c0c1ff]/20 blur-2xl" />
-								</div>
-								<div>
-									<p className="font-semibold text-[#e4e1ed] text-[24px]">
-										Tap to Hum
-									</p>
-									<p className="mx-auto mt-2 max-w-xs text-[#c7c4d7] text-[16px]">
-										Let Ampliq identify that melody stuck in your head using AI
-										frequency mapping.
-									</p>
-								</div>
-							</div>
+				{/* Right Column: Tabbed Search Results */}
+				<section className="flex max-h-[calc(100vh-160px)] flex-col gap-6 overflow-y-auto pr-2 md:col-span-5">
+					{/* Tabs Header */}
+					<div className="sticky top-0 z-10 flex gap-4 border-[#e4e1ed]/5 border-b bg-[#13131b]/80 backdrop-blur-md">
+						<button
+							className={`relative pb-3 font-bold text-[11px] uppercase tracking-[0.2em] transition-all ${
+								activeTab === "jamendo"
+									? "text-[#c0c1ff]"
+									: "text-[#c7c4d7]/50 hover:text-[#c7c4d7]"
+							}`}
+							onClick={() => setActiveTab("jamendo")}
+							type="button"
+						>
+							Jamendo
+							{activeTab === "jamendo" && (
+								<div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#c0c1ff]" />
+							)}
+						</button>
+						<button
+							className={`relative pb-3 font-bold text-[11px] uppercase tracking-[0.2em] transition-all ${
+								activeTab === "youtube"
+									? "text-[#ff4444]"
+									: "text-[#c7c4d7]/50 hover:text-[#c7c4d7]"
+							}`}
+							onClick={() => setActiveTab("youtube")}
+							type="button"
+						>
+							YouTube
+							{activeTab === "youtube" && (
+								<div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#ff4444]" />
+							)}
+						</button>
+					</div>
 
-							{/* Found State Song Card Mockup */}
-							<div className="glass-panel rounded-2xl border-[#c0c1ff]/20 p-6 shadow-[#c0c1ff]/5 shadow-lg">
-								<div className="flex gap-4">
-									<div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[#1f1f27]">
-										<Image
-											alt="Found Cover"
-											className="h-full w-full object-cover"
-											fill
-											src="https://lh3.googleusercontent.com/aida-public/AB6AXuDzkyF6tTSVgAoTFQq4Q1dv1jCtJSngjxv-eI55PBeHyVoMcTTgYB2fG88qG9nVD4EeAKA5h7GHM8CA8Gxe9-iLFLO0gNVeEa5V3Ox1rgfOQWKqfXehUyGou-Aopphb0jeo08TpSjriPqeI4TLt60P_-Ipr5CppmCZ2UHKTqZT0V142TD-hXrOQnqDLvBiHo1vnD5VaexzcSByxh2exv9QF4PRwmtrItvpGiciqoh5g1I2E98kpqo7O66Pzbsbg2-v3vpvL8pJvzh35"
-											unoptimized
-										/>
-									</div>
-									<div className="flex min-w-0 flex-1 flex-col justify-center">
-										<div className="flex items-start justify-between">
-											<h3 className="truncate pr-2 font-semibold text-[#e4e1ed] text-[18px]">
-												Synthetic Dreams
-											</h3>
-											<span className="shrink-0 rounded border border-[#c0c1ff]/20 bg-[#c0c1ff]/10 px-2 py-0.5 font-medium text-[#c0c1ff] text-[10px]">
-												128 BPM
-											</span>
-										</div>
-										<p className="truncate text-[#c7c4d7] text-[16px]">
-											Cyberheart
-										</p>
-										<div className="mt-4 flex gap-3">
-											<button
-												className="h-10 flex-1 rounded-lg bg-[#c0c1ff] font-bold text-[#1000a9] text-[11px] transition-all hover:brightness-110 active:scale-95"
-												type="button"
-											>
-												Mix Now
-											</button>
-											<button
-												className="h-10 flex-1 rounded-lg border border-[#464554] font-bold text-[#c7c4d7] text-[11px] transition-all hover:bg-[#34343d]/50 active:scale-95"
-												type="button"
-											>
-												Add to Queue
-											</button>
-										</div>
-									</div>
+					<div className="flex flex-col gap-4">
+						{activeTab === "jamendo" ? (
+							<div className="flex flex-col gap-4">
+								<div className="flex items-center justify-between">
+									<h3 className="font-bold text-[#c0c1ff] text-[10px] uppercase tracking-widest opacity-50">
+										Jamendo Results
+									</h3>
+									{loading && (
+										<Loader2 className="h-4 w-4 animate-spin text-[#c0c1ff]" />
+									)}
 								</div>
+								<JamendoPanel
+									addToQueue={addToQueue}
+									handlePlayNow={handlePlayNow}
+									loading={loading}
+									query={searchQuery}
+									results={results}
+								/>
 							</div>
-						</>
-					)}
+						) : (
+							<div className="flex flex-col gap-4">
+								<div className="flex items-center justify-between">
+									<h3 className="font-bold text-[#ff4444] text-[10px] uppercase tracking-widest opacity-50">
+										YouTube Results
+									</h3>
+									{ytLoading && (
+										<Loader2 className="h-4 w-4 animate-spin text-[#ff4444]" />
+									)}
+								</div>
+								<YouTubeResults
+									downloadStates={downloadStates}
+									onDownload={handleYtDownload}
+									onPlayNow={handlePlayNow}
+									results={ytResults}
+								/>
+							</div>
+						)}
+					</div>
 				</section>
 			</main>
 
 			{/* Sidebar (Right): Up Next Queue */}
+			{/* ... same as before ... */}
 			<aside className="fixed top-16 right-0 bottom-0 z-40 hidden w-80 flex-col border-[#e4e1ed]/5 border-l bg-[#1b1b23]/80 text-[#e4e1ed] shadow-xl backdrop-blur-2xl md:flex">
 				<div className="flex items-center justify-between border-[#e4e1ed]/5 border-b p-6">
 					<div>
