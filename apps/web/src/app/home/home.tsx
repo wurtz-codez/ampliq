@@ -6,6 +6,7 @@ import {
 	ListPlus,
 	Loader2,
 	Mic,
+	Music,
 	Pause,
 	Play,
 	Search,
@@ -74,6 +75,47 @@ export default function HomePage({
 	} = usePlayerStore();
 
 	const { downloadStates, download: downloadYt } = useYtDownload();
+	const [activeDownloads, setActiveDownloads] = useState<
+		{ videoId: string; track: Track }[]
+	>([]);
+
+	const fetchActiveDownloads = useCallback(async () => {
+		try {
+			const res = await fetch("/api/yt-dlp/active");
+			const data = await res.json();
+			if (data.tracks) {
+				const formatted = data.tracks.map(
+					(t: {
+						videoId: string;
+						id: string;
+						title: string;
+						uploader: string;
+						duration: number;
+						thumbnail: string;
+						audioUrl: string;
+					}) => ({
+						videoId: t.videoId,
+						track: {
+							id: t.id,
+							name: t.title,
+							artistName: t.uploader,
+							duration: t.duration,
+							albumImage: t.thumbnail,
+							albumName: "YouTube",
+							audio: t.audioUrl,
+						},
+					})
+				);
+				setActiveDownloads(formatted);
+			}
+		} catch (err) {
+			console.error("Failed to fetch active downloads", err);
+		}
+	}, []);
+
+	useEffect(() => {
+		fetchActiveDownloads();
+	}, [fetchActiveDownloads]);
 
 	const {
 		results: ytResults,
@@ -165,15 +207,21 @@ export default function HomePage({
 
 	const handleYtDownload = useCallback(
 		async (videoId: string): Promise<Track | undefined> => {
+			// Check if already in active downloads
+			const existing = activeDownloads.find((d) => d.videoId === videoId);
+			if (existing) {
+				return existing.track;
+			}
+
 			const track = await downloadYt(videoId);
 			if (track) {
-				addToQueue(track);
-				playNow(track);
+				// Refresh active downloads after a new one
+				fetchActiveDownloads();
 				return track;
 			}
 			return;
 		},
-		[downloadYt, playNow, addToQueue]
+		[downloadYt, activeDownloads, fetchActiveDownloads]
 	);
 
 	const totalDuration = queue.reduce((acc, track) => acc + track.duration, 0);
@@ -455,12 +503,85 @@ export default function HomePage({
 										<Loader2 className="h-4 w-4 animate-spin text-[#ff4444]" />
 									)}
 								</div>
-								<YouTubeResults
-									downloadStates={downloadStates}
-									onDownload={handleYtDownload}
-									onPlayNow={handlePlayNow}
-									results={ytResults}
-								/>
+
+								{/* Recent Downloads Section */}
+								{activeDownloads.length > 0 && (
+									<div className="flex flex-col gap-3">
+										<h4 className="font-bold text-[#c0c1ff] text-[10px] uppercase tracking-widest opacity-80">
+											Recent Downloads
+										</h4>
+										<div className="flex flex-col gap-2">
+											{activeDownloads.slice(0, 5).map(({ videoId, track }) => (
+												<div
+													className="group flex items-center gap-3 rounded-lg bg-[#c0c1ff]/5 p-2 transition-all hover:bg-[#c0c1ff]/10"
+													key={videoId}
+												>
+													<div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-[#1f1f27]">
+														{track.albumImage ? (
+															<Image
+																alt={track.name}
+																className="object-cover"
+																fill
+																src={track.albumImage}
+																unoptimized
+															/>
+														) : (
+															<div className="flex h-full w-full items-center justify-center">
+																<Play className="h-4 w-4 text-[#c7c4d7]" />
+															</div>
+														)}
+													</div>
+													<div className="min-w-0 flex-1">
+														<p className="truncate font-medium text-[#e4e1ed] text-sm">
+															{track.name}
+														</p>
+														<p className="truncate text-[#c7c4d7] text-[10px]">
+															{track.artistName}
+														</p>
+													</div>
+													<div className="flex gap-2 opacity-0 transition-all group-hover:opacity-100">
+														<button
+															className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#34343d] text-[#c7c4d7] transition-all hover:bg-[#c0c1ff] hover:text-[#1000a9]"
+															onClick={() => addToQueue(track)}
+															type="button"
+														>
+															<ListPlus className="h-4 w-4" />
+														</button>
+														<button
+															className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-105"
+															onClick={() => handlePlayNow(track)}
+															type="button"
+														>
+															<Play className="h-4 w-4 fill-current" />
+														</button>
+													</div>
+												</div>
+											))}
+										</div>
+										<div className="h-px w-full bg-[#e4e1ed]/5" />
+									</div>
+								)}
+
+								{/* Search Results */}
+								{searchQuery && (
+									<div className="flex flex-col gap-4">
+										<YouTubeResults
+											activeDownloads={activeDownloads.map((d) => d.videoId)}
+											downloadStates={downloadStates}
+											onAddToQueue={addToQueue}
+											onDownload={handleYtDownload}
+											onPlayNow={handlePlayNow}
+											results={ytResults}
+										/>
+									</div>
+								)}
+
+								{!searchQuery && activeDownloads.length === 0 && (
+									<div className="flex flex-col items-center justify-center py-12 text-[#c7c4d7] opacity-50">
+										<Music className="mb-4 h-12 w-12" />
+										<p>Search YouTube to see results here</p>
+									</div>
+								)}
 							</div>
 						)}
 					</div>

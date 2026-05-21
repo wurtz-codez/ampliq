@@ -1,13 +1,22 @@
 "use client";
 
-import { AlertCircle, Download, Loader2, Music, Play } from "lucide-react";
+import {
+	AlertCircle,
+	Download,
+	ListPlus,
+	Loader2,
+	Music,
+	Play,
+} from "lucide-react";
 import Image from "next/image";
 import type { DownloadState } from "@/hooks/use-yt-download";
 import type { YouTubeSearchResult } from "@/hooks/use-yt-search";
 import type { Track } from "@/store/use-player-store";
 
 interface YouTubeResultsProps {
+	activeDownloads?: string[];
 	downloadStates: Record<string, DownloadState>;
+	onAddToQueue: (track: Track) => void;
 	onDownload: (videoId: string) => Promise<Track | undefined>;
 	onPlayNow: (track: Track) => void;
 	results: YouTubeSearchResult[];
@@ -18,6 +27,8 @@ export function YouTubeResults({
 	downloadStates,
 	onDownload,
 	onPlayNow,
+	onAddToQueue,
+	activeDownloads = [],
 }: YouTubeResultsProps) {
 	if (results.length === 0) {
 		return (
@@ -44,10 +55,15 @@ export function YouTubeResults({
 					state.phase === "found";
 				const isDone = state.phase === "done" && !!state.track;
 				const isError = state.phase === "error";
+				const isAlreadyDownloaded = activeDownloads.includes(result.id);
 
 				return (
 					<div
-						className="group relative flex items-center gap-4 rounded-xl bg-[#1b1b23]/40 p-3 transition-all hover:bg-[#34343d]/40"
+						className={`group relative flex items-center gap-4 rounded-xl p-3 transition-all ${
+							isAlreadyDownloaded
+								? "border border-[#c0c1ff]/20 bg-[#c0c1ff]/10"
+								: "bg-[#1b1b23]/40"
+						} hover:bg-[#34343d]/40`}
 						key={result.id}
 					>
 						<div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-[#1f1f27]">
@@ -69,12 +85,24 @@ export function YouTubeResults({
 									<Loader2 className="h-6 w-6 animate-spin text-[#c0c1ff]" />
 								</div>
 							)}
+							{isAlreadyDownloaded && !isDownloading && !isDone && (
+								<div className="absolute inset-0 flex items-center justify-center bg-[#c0c1ff]/20 backdrop-blur-[1px]">
+									<Play className="h-6 w-6 text-[#c0c1ff]" />
+								</div>
+							)}
 						</div>
 
 						<div className="min-w-0 flex-1">
-							<h4 className="truncate font-semibold text-[#e4e1ed] text-[15px]">
-								{result.title}
-							</h4>
+							<div className="flex items-center gap-2">
+								<h4 className="truncate font-semibold text-[#e4e1ed] text-[15px]">
+									{result.title}
+								</h4>
+								{isAlreadyDownloaded && (
+									<span className="shrink-0 rounded-full bg-[#c0c1ff]/20 px-1.5 py-0.5 font-bold text-[#c0c1ff] text-[9px] uppercase tracking-wider">
+										Cached
+									</span>
+								)}
+							</div>
 							<p className="truncate text-[#c7c4d7] text-[12px]">
 								{result.uploader}
 							</p>
@@ -97,14 +125,37 @@ export function YouTubeResults({
 						</div>
 
 						<div className="flex shrink-0 items-center gap-2">
-							{isDone ? (
-								<button
-									className="flex h-10 w-10 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-105 active:scale-95"
-									onClick={() => state.track && onPlayNow(state.track)}
-									type="button"
-								>
-									<Play className="h-5 w-5 fill-current" />
-								</button>
+							{isDone || (isAlreadyDownloaded && !isDownloading) ? (
+								<>
+									<button
+										className="flex h-10 w-10 items-center justify-center rounded-full bg-[#34343d] text-[#c7c4d7] transition-all hover:bg-[#c0c1ff] hover:text-[#1000a9] active:scale-95"
+										onClick={() => {
+											if (isDone && state.track) {
+												onAddToQueue(state.track);
+											} else if (isAlreadyDownloaded) {
+												onDownload(result.id).then((t) => t && onAddToQueue(t));
+											}
+										}}
+										title="Add to Queue"
+										type="button"
+									>
+										<ListPlus className="h-5 w-5" />
+									</button>
+									<button
+										className="flex h-10 w-10 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-105 active:scale-95"
+										onClick={() => {
+											if (isDone && state.track) {
+												onPlayNow(state.track);
+											} else if (isAlreadyDownloaded) {
+												onDownload(result.id).then((t) => t && onPlayNow(t));
+											}
+										}}
+										title="Play Now"
+										type="button"
+									>
+										<Play className="h-5 w-5 fill-current" />
+									</button>
+								</>
 							) : (
 								<button
 									className="flex h-10 w-10 items-center justify-center rounded-full bg-[#34343d] text-[#c7c4d7] transition-all hover:bg-[#c0c1ff] hover:text-[#1000a9] disabled:opacity-50"
