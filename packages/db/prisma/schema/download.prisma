@@ -1,0 +1,14 @@
+model DownloadedTrack {
+  id        String   @id @default(cuid())
+  videoId   String
+  title     String
+  uploader  String
+  duration  Int
+  thumbnail String
+  audioUrl  String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("downloaded_track")
+}

@@ -45,6 +45,38 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 		const wavesurfer = useRef<WaveSurfer | null>(null);
 		const [isLoaded, setIsLoaded] = useState(false);
 
+		// Keep callbacks in refs to avoid re-initializing WaveSurfer
+		const onReadyRef = useRef(onReady);
+		const onFinishRef = useRef(onFinish);
+		const onTimeUpdateRef = useRef(onTimeUpdate);
+		const onPlayStateChangeRef = useRef(onPlayStateChange);
+		const isPlayingRef = useRef(isPlaying);
+		const initialTimeRef = useRef(initialTime);
+
+		useEffect(() => {
+			onReadyRef.current = onReady;
+		}, [onReady]);
+
+		useEffect(() => {
+			onFinishRef.current = onFinish;
+		}, [onFinish]);
+
+		useEffect(() => {
+			onTimeUpdateRef.current = onTimeUpdate;
+		}, [onTimeUpdate]);
+
+		useEffect(() => {
+			onPlayStateChangeRef.current = onPlayStateChange;
+		}, [onPlayStateChange]);
+
+		useEffect(() => {
+			isPlayingRef.current = isPlaying;
+		}, [isPlaying]);
+
+		useEffect(() => {
+			initialTimeRef.current = initialTime;
+		}, [initialTime]);
+
 		useImperativeHandle(
 			ref,
 			() => ({
@@ -62,13 +94,13 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			[]
 		);
 
+		// Main initialization effect - only runs when audioUrl or peaks change
 		useEffect(() => {
 			if (!waveformRef.current) {
 				return;
 			}
 
 			let destroyed = false;
-			let startFrom = initialTime;
 
 			let normalizedPeaks: number[] | undefined;
 			if (peaks) {
@@ -106,87 +138,92 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 				}
 				setIsLoaded(true);
 
-				if (startFrom > 0) {
-					ws.setTime(startFrom);
-					startFrom = 0; // Only use once
+				// Restore time from persisted state
+				if (initialTimeRef.current > 0) {
+					ws.setTime(initialTimeRef.current);
 				}
 
-				onReady?.();
+				onReadyRef.current?.();
 
-				if (isPlaying) {
+				if (isPlayingRef.current) {
 					ws.play().catch(() => {
-						onPlayStateChange?.(false);
+						onPlayStateChangeRef.current?.(false);
 					});
 				}
 			});
 
 			ws.on("finish", () => {
 				if (!destroyed) {
-					onFinish?.();
+					onFinishRef.current?.();
 				}
 			});
 
 			ws.on("audioprocess", (currentTime) => {
 				if (!destroyed) {
-					onTimeUpdate?.(currentTime);
+					onTimeUpdateRef.current?.(currentTime);
 				}
 			});
 
 			ws.on("play", () => {
 				if (!destroyed) {
-					onPlayStateChange?.(true);
+					onPlayStateChangeRef.current?.(true);
 				}
 			});
 
 			ws.on("pause", () => {
 				if (!destroyed) {
-					onPlayStateChange?.(false);
+					onPlayStateChangeRef.current?.(false);
 				}
 			});
 
-			// Sync seeking with time update
 			ws.on("interaction", () => {
 				if (!destroyed) {
-					onTimeUpdate?.(ws.getCurrentTime());
+					onTimeUpdateRef.current?.(ws.getCurrentTime());
 				}
 			});
 
 			return () => {
 				destroyed = true;
-				try {
-					ws.destroy();
-				} catch {
-					// ignore
+				if (wavesurfer.current) {
+					const ws = wavesurfer.current;
+					wavesurfer.current = null;
+					// Use requestAnimationFrame to ensure we're not destroying in the middle of a render/event loop
+					requestAnimationFrame(() => {
+						try {
+							ws.destroy();
+						} catch {
+							// Ignore errors during destruction
+						}
+					});
 				}
 			};
-		}, [
-			audioUrl,
-			peaks,
-			onReady,
-			onFinish,
-			onTimeUpdate,
-			onPlayStateChange,
-			isPlaying,
-			initialTime,
-		]);
+		}, [audioUrl, peaks]);
 
+		// Sync play/pause state without reinitializing WaveSurfer
+		useEffect(() => {
+			if (!wavesurfer.current) {
+				return;
+			}
+
+			if (!isLoaded) {
+				return;
+			}
+
+			if (isPlaying) {
+				wavesurfer.current.play().catch(() => {
+					// Ignore autoplay restrictions
+				});
+			} else {
+				wavesurfer.current.pause();
+			}
+		}, [isPlaying, isLoaded]);
+
+		// Sync volume
 		useEffect(() => {
 			if (wavesurfer.current && isLoaded) {
 				wavesurfer.current.setVolume(volume);
 			}
 		}, [volume, isLoaded]);
-
-		useEffect(() => {
-			if (wavesurfer.current && isLoaded) {
-				if (isPlaying) {
-					wavesurfer.current.play().catch(() => {
-						// Ignore playback errors
-					});
-				} else {
-					wavesurfer.current.pause();
-				}
-			}
-		}, [isPlaying, isLoaded]);
 
 		return (
 			<div className="relative w-full">
