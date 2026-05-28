@@ -21,6 +21,9 @@ export interface Track {
 
 interface PlayerState {
 	addToQueue: (track: Track) => void;
+
+	// Crossfader: -1 (Deck A) to 1 (Deck B)
+	crossfader: number;
 	currentSong: Track | null;
 	currentTime: number;
 	isPlaying: boolean;
@@ -29,6 +32,7 @@ interface PlayerState {
 	playTrackFromQueue: (index: number) => void;
 	queue: Track[];
 	removeFromQueue: (index: number) => void;
+	setCrossfader: (value: number) => void;
 
 	// Actions
 	setCurrentSong: (song: Track | null) => void;
@@ -47,6 +51,7 @@ export const usePlayerStore = create<PlayerState>()(
 			currentTime: 0,
 			isPlaying: false,
 			volume: 0.7,
+			crossfader: 0,
 
 			setCurrentSong: (song) => set({ currentSong: song }),
 			setQueue: (queueOrUpdater) => {
@@ -59,6 +64,7 @@ export const usePlayerStore = create<PlayerState>()(
 			setCurrentTime: (time) => set({ currentTime: time }),
 			setIsPlaying: (isPlaying) => set({ isPlaying }),
 			setVolume: (volume) => set({ volume }),
+			setCrossfader: (crossfader) => set({ crossfader }),
 
 			addToQueue: (track) => {
 				const { queue } = get();
@@ -117,6 +123,7 @@ export const usePlayerStore = create<PlayerState>()(
 				currentSong: state.currentSong,
 				queue: state.queue,
 				volume: state.volume,
+				crossfader: state.crossfader,
 			}),
 		}
 	)

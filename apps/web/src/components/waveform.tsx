@@ -13,6 +13,7 @@ interface WaveformProps {
 	audioUrl: string;
 	initialTime?: number;
 	isPlaying: boolean;
+	onError?: () => void;
 	onFinish?: () => void;
 	onPlayStateChange?: (playing: boolean) => void;
 	onReady?: () => void;
@@ -38,18 +39,21 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			onFinish,
 			onTimeUpdate,
 			onPlayStateChange,
+			onError,
 		},
 		ref
 	) => {
 		const waveformRef = useRef<HTMLDivElement>(null);
 		const wavesurfer = useRef<WaveSurfer | null>(null);
 		const [isLoaded, setIsLoaded] = useState(false);
+		const [hasError, setHasError] = useState(false);
 
 		// Keep callbacks in refs to avoid re-initializing WaveSurfer
 		const onReadyRef = useRef(onReady);
 		const onFinishRef = useRef(onFinish);
 		const onTimeUpdateRef = useRef(onTimeUpdate);
 		const onPlayStateChangeRef = useRef(onPlayStateChange);
+		const onErrorRef = useRef(onError);
 		const isPlayingRef = useRef(isPlaying);
 		const initialTimeRef = useRef(initialTime);
 
@@ -68,6 +72,10 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 		useEffect(() => {
 			onPlayStateChangeRef.current = onPlayStateChange;
 		}, [onPlayStateChange]);
+
+		useEffect(() => {
+			onErrorRef.current = onError;
+		}, [onError]);
 
 		useEffect(() => {
 			isPlayingRef.current = isPlaying;
@@ -137,6 +145,7 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 					return;
 				}
 				setIsLoaded(true);
+				setHasError(false);
 
 				// Restore time from persisted state
 				if (initialTimeRef.current > 0) {
@@ -182,18 +191,23 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 				}
 			});
 
+			ws.on("error", () => {
+				if (!destroyed) {
+					setHasError(true);
+					setIsLoaded(false);
+					onErrorRef.current?.();
+				}
+			});
+
 			return () => {
 				destroyed = true;
 				if (wavesurfer.current) {
-					const ws = wavesurfer.current;
+					const wsInstance = wavesurfer.current;
 					wavesurfer.current = null;
 					try {
-						ws.destroy();
-					} catch (e) {
-						// Ignore AbortError and other destruction errors
-						if (e instanceof Error && e.name === "AbortError") {
-							return;
-						}
+						wsInstance.destroy();
+					} catch {
+						// Ignore all destruction errors (AbortError, DOMException, etc.)
 					}
 				}
 			};
@@ -225,9 +239,19 @@ export const Waveform = forwardRef<WaveformHandle, WaveformProps>(
 			}
 		}, [volume, isLoaded]);
 
+		const isAudioErrored = hasError;
+		const showLoading = isAudioErrored === false && isLoaded === false;
+
 		return (
 			<div className="relative w-full">
-				{!isLoaded && (
+				{hasError && (
+					<div className="flex items-center justify-center rounded-md bg-white/5 py-4">
+						<span className="text-muted-foreground text-xs">
+							Audio unavailable
+						</span>
+					</div>
+				)}
+				{showLoading && (
 					<div className="absolute inset-0 flex animate-pulse items-center justify-center rounded-md bg-white/5">
 						<span className="text-muted-foreground text-xs">
 							Loading waveform...

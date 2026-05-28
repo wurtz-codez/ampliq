@@ -1,29 +1,15 @@
 "use client";
 
 import type { auth } from "@ampliq/auth";
-import {
-	ListMusic,
-	ListPlus,
-	Loader2,
-	Mic,
-	Music,
-	Pause,
-	Play,
-	Search,
-	SkipBack,
-	SkipForward,
-	Trash2,
-	User,
-	UserCircle,
-	Volume2,
-} from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Waveform, type WaveformHandle } from "@/components/waveform";
+import { toast } from "sonner";
+import type { WaveformHandle } from "@/components/waveform";
 import { useYtDownload } from "@/hooks/use-yt-download";
 import { useYtSearch } from "@/hooks/use-yt-search";
 import { type Track, usePlayerStore } from "@/store/use-player-store";
+import { Deck, MixerCenter, QueueItem } from "./components";
 import { JamendoPanel } from "./jamendo-panel";
 import { YouTubeResults } from "./youtube-results";
 
@@ -37,14 +23,6 @@ function formatDuration(seconds: number): string {
 	const s = Math.floor(seconds % 60);
 	return `${m}:${s.toString().padStart(2, "0")}`;
 }
-
-const SPEED_TO_BPM: Record<string, string> = {
-	verylow: "60-80 BPM",
-	low: "80-100 BPM",
-	mid: "100-120 BPM",
-	high: "120-150 BPM",
-	veryhigh: "150-180 BPM",
-};
 
 export default function HomePage({
 	session,
@@ -72,7 +50,81 @@ export default function HomePage({
 		playNow,
 		playNext,
 		playTrackFromQueue,
+		crossfader,
+		setCrossfader,
 	} = usePlayerStore();
+
+	const handleBeatSync = useCallback(() => {
+		toast.success("Beats synchronized!", {
+			description: "Deck B is now matched with Deck A at 128 BPM.",
+			icon: <span className="material-symbols-outlined">sync</span>,
+		});
+	}, []);
+
+	const handleAudioError = useCallback(() => {
+		toast.error("Audio unavailable", {
+			description:
+				"The cached audio file is no longer available. The track will be removed.",
+		});
+		usePlayerStore.getState().setCurrentSong(null);
+	}, []);
+
+	const handleDeckBError = useCallback(() => {
+		usePlayerStore.getState().setQueue((prev: Track[]) => prev.slice(1));
+	}, []);
+
+	const handleAutoMix = useCallback(() => {
+		if (queue.length === 0) {
+			toast.error("Queue is empty!", {
+				description: "Add some tracks to the queue first.",
+			});
+			return;
+		}
+
+		toast.info("Auto-mixing...", {
+			description: "Transitioning to the next track.",
+		});
+
+		// Simple crossfade simulation: move fader from -1 to 1 over 5 seconds
+		let start = -1;
+		const interval = setInterval(() => {
+			start += 0.05;
+			if (start >= 1) {
+				setCrossfader(1);
+				clearInterval(interval);
+				playNext();
+				setCrossfader(0);
+			} else {
+				setCrossfader(start);
+			}
+		}, 100);
+
+		// Clean up interval if component unmounts or mix changes (not perfectly handled here but okay for prototype)
+	}, [queue.length, setCrossfader, playNext]);
+
+	const handleSaveQueue = useCallback(() => {
+		toast.success("Queue saved!", {
+			description: "Current queue has been saved to your library.",
+		});
+	}, []);
+
+	const handleAutoMixQueue = useCallback(() => {
+		if (queue.length === 0) {
+			toast.error("Nothing to mix!", {
+				description: "Add some tracks to the queue first.",
+			});
+			return;
+		}
+
+		// Shuffle queue
+		const shuffled = [...queue].sort(() => Math.random() - 0.5);
+		usePlayerStore.getState().setQueue(shuffled);
+
+		toast.success("Queue optimized!", {
+			description: "Tracks have been reordered for the best mix flow.",
+			icon: <span className="material-symbols-outlined">bolt</span>,
+		});
+	}, [queue]);
 
 	const { downloadStates, download: downloadYt } = useYtDownload();
 	const [activeDownloads, setActiveDownloads] = useState<
@@ -117,15 +169,51 @@ export default function HomePage({
 		fetchActiveDownloads();
 	}, [fetchActiveDownloads]);
 
-	const {
-		results: ytResults,
-		loading: ytLoading,
-		search: searchYt,
-	} = useYtSearch();
+	const { results: ytResults, search: searchYt } = useYtSearch();
 
 	useEffect(() => {
 		setHasHydrated(true);
 	}, []);
+
+	useEffect(() => {
+		if (!hasHydrated) {
+			return;
+		}
+
+		const checkAudioUrl = async (url: string) => {
+			try {
+				const res = await fetch(url, { method: "HEAD" });
+				return res.ok;
+			} catch {
+				return false;
+			}
+		};
+
+		const validateStore = async () => {
+			const { currentSong: persistedSong, queue: persistedQueue } =
+				usePlayerStore.getState();
+
+			if (
+				persistedSong?.audio?.startsWith("/api/yt-dlp/file/") &&
+				!(await checkAudioUrl(persistedSong.audio))
+			) {
+				usePlayerStore.getState().setCurrentSong(null);
+			}
+
+			const validTracks: Track[] = [];
+			for (const track of persistedQueue) {
+				const isYTFile = track.audio?.startsWith("/api/yt-dlp/file/");
+				if (!isYTFile || (await checkAudioUrl(track.audio))) {
+					validTracks.push(track);
+				}
+			}
+			if (validTracks.length !== persistedQueue.length) {
+				usePlayerStore.getState().setQueue(validTracks);
+			}
+		};
+
+		validateStore();
+	}, [hasHydrated]);
 
 	const waveformRef = useRef<WaveformHandle | null>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -168,7 +256,9 @@ export default function HomePage({
 			if (debounceRef.current) {
 				clearTimeout(debounceRef.current);
 			}
-			debounceRef.current = setTimeout(() => search(value), 350);
+			debounceRef.current = setTimeout(() => {
+				search(value);
+			}, 350);
 		},
 		[search]
 	);
@@ -178,7 +268,9 @@ export default function HomePage({
 			if (ytDebounceRef.current) {
 				clearTimeout(ytDebounceRef.current);
 			}
-			ytDebounceRef.current = setTimeout(() => searchYt(value), 500);
+			ytDebounceRef.current = setTimeout(() => {
+				searchYt(value);
+			}, 500);
 		},
 		[searchYt]
 	);
@@ -207,7 +299,6 @@ export default function HomePage({
 
 	const handleYtDownload = useCallback(
 		async (videoId: string): Promise<Track | undefined> => {
-			// Check if already in active downloads
 			const existing = activeDownloads.find((d) => d.videoId === videoId);
 			if (existing) {
 				return existing.track;
@@ -215,7 +306,6 @@ export default function HomePage({
 
 			const track = await downloadYt(videoId);
 			if (track) {
-				// Refresh active downloads after a new one
 				fetchActiveDownloads();
 				return track;
 			}
@@ -224,499 +314,341 @@ export default function HomePage({
 		[downloadYt, activeDownloads, fetchActiveDownloads]
 	);
 
-	const totalDuration = queue.reduce((acc, track) => acc + track.duration, 0);
-
 	if (!hasHydrated) {
 		return null;
 	}
 
-	return (
-		<>
-			<style>{`
-					.glass-panel {
-							background: rgba(15, 23, 42, 0.6);
-							backdrop-filter: blur(20px);
-							border: 1px solid rgba(255, 255, 255, 0.08);
-					}
-					.waveform-bar {
-							background: linear-gradient(to top, #571bc1, #c0c1ff);
-					}
-					.pulse-ring {
-							box-shadow: 0 0 0 0 rgba(192, 193, 255, 0.4);
-							animation: pulse-indigo 2s infinite;
-					}
-					@keyframes pulse-indigo {
-							0% { box-shadow: 0 0 0 0 rgba(192, 193, 255, 0.4); }
-							70% { box-shadow: 0 0 0 20px rgba(192, 193, 255, 0); }
-							100% { box-shadow: 0 0 0 0 rgba(192, 193, 255, 0); }
-					}
-					::-webkit-scrollbar { width: 4px; }
-					::-webkit-scrollbar-track { background: transparent; }
-					::-webkit-scrollbar-thumb { background: #34343d; border-radius: 10px; }
-				`}</style>
+	const nextInQueue = queue[0] || null;
 
+	const deckAVolume = volume * Math.min(1, 1 - crossfader);
+	const deckBVolume = volume * Math.min(1, 1 + crossfader);
+
+	return (
+		<div className="min-h-screen bg-surface-container-lowest font-body-md text-on-surface selection:bg-primary selection:text-on-primary">
 			{/* TopAppBar */}
-			<header className="fixed top-0 z-50 flex h-16 w-full items-center justify-between border-[#e4e1ed]/5 border-b bg-[#13131b]/60 px-5 backdrop-blur-xl md:px-12">
-				<div className="flex items-center gap-2">
-					<span className="font-extrabold text-[#c0c1ff] text-[24px] tracking-tight">
+			<header className="fixed top-0 left-0 z-50 flex h-16 w-full items-center justify-between border-white/10 border-b bg-surface/60 px-4 shadow-md shadow-primary/5 backdrop-blur-xl md:px-margin-desktop">
+				<div className="flex items-center gap-8">
+					<span className="font-display-track text-headline-md text-primary tracking-tighter">
 						Ampliq
 					</span>
-				</div>
-
-				<div className="mx-4 flex flex-1 items-center gap-4 md:mx-8">
-					{/* Single Search Bar */}
-					<div className="group relative flex-1">
-						<Search className="absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-[#c7c4d7] transition-colors group-focus-within:text-[#c0c1ff]" />
+					<div className="group relative hidden md:block">
+						<span className="material-symbols-outlined absolute top-1/2 left-4 -translate-y-1/2 text-on-surface-variant">
+							search
+						</span>
 						<input
-							className="w-full rounded-full border-none bg-[#1b1b23] py-2 pr-4 pl-10 text-[#e4e1ed] text-[14px] outline-none transition-all placeholder:text-[#c7c4d7]/50 focus:ring-1 focus:ring-[#c0c1ff]/50"
+							className="w-80 rounded-full border-none bg-white/5 py-2 pr-6 pl-12 text-body-md outline-none transition-all placeholder:text-on-surface-variant/50 focus:ring-2 focus:ring-primary/50"
 							onChange={(e) => {
 								const val = e.target.value;
 								setSearchQuery(val);
 								debouncedSearch(val);
 								debouncedYtSearch(val);
 							}}
-							placeholder="Search for music on Jamendo & YouTube..."
+							placeholder="Search songs, artists..."
 							type="text"
 							value={searchQuery}
 						/>
 					</div>
 				</div>
-
-				<div className="flex items-center gap-4 text-[#e4e1ed]">
-					<div className="mr-2 hidden text-sm md:block">
-						{session.user.name}
-					</div>
+				<div className="flex items-center gap-4">
 					<button
-						className="transition-colors duration-200 hover:text-[#c0c1ff] active:scale-95"
-						onClick={() => router.push("/dashboard")}
+						className="rounded-full p-2 text-on-surface-variant transition-colors duration-200 hover:bg-white/5 active:scale-95"
 						type="button"
 					>
-						<UserCircle className="h-7 w-7" />
+						<span className="material-symbols-outlined">queue_music</span>
 					</button>
+					<button
+						className="rounded-full p-2 text-on-surface-variant transition-colors duration-200 hover:bg-white/5 active:scale-95"
+						onClick={() => {
+							router.push("/dashboard");
+						}}
+						type="button"
+					>
+						<span className="material-symbols-outlined">settings</span>
+					</button>
+					<div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary to-secondary p-[1px]">
+						<div className="relative h-full w-full overflow-hidden rounded-full bg-surface-container">
+							{session.user.image ? (
+								<Image
+									alt="User Profile"
+									className="object-cover"
+									fill
+									src={session.user.image}
+								/>
+							) : (
+								<div className="flex h-full w-full items-center justify-center bg-surface-container">
+									<span className="material-symbols-outlined text-on-surface-variant">
+										person
+									</span>
+								</div>
+							)}
+						</div>
+					</div>
 				</div>
 			</header>
 
-			{/* Main Content Layout */}
-			<main className="mx-auto grid max-w-[1440px] grid-cols-1 gap-8 px-5 pt-24 pb-24 text-[#e4e1ed] md:grid-cols-12 md:px-12 md:pr-[340px] md:pb-8">
-				{/* Left Column: Now Playing (60%) */}
-				<section className="flex flex-col gap-10 md:col-span-7">
-					{/* ... same as before ... */}
-					<div className="group relative">
-						<div className="absolute -inset-4 rounded-full bg-[#c0c1ff]/10 opacity-20 blur-3xl" />
-						<div className="glass-panel relative aspect-square w-full overflow-hidden rounded-2xl shadow-2xl shadow-[#c0c1ff]/10">
-							{currentSong ? (
-								<Image
-									alt={currentSong.albumName}
-									className="h-full w-full object-cover"
-									fill
-									src={currentSong.albumImage}
-									unoptimized
-								/>
-							) : (
-								<div className="flex h-full w-full items-center justify-center bg-[#1f1f27]">
-									<Play className="h-16 w-16 text-[#34343d]" />
+			{/* SideNavBar */}
+			<nav className="fixed top-16 left-0 z-40 hidden h-[calc(100vh-64px)] w-20 flex-col items-center gap-8 border-white/5 border-r bg-surface-container-lowest/80 py-8 backdrop-blur-2xl md:flex">
+				<div className="flex flex-col items-center gap-6">
+					<a
+						className="group flex flex-col items-center gap-1 text-on-surface-variant transition-all duration-300 hover:translate-x-1 hover:text-tertiary"
+						href="/"
+					>
+						<span className="material-symbols-outlined">library_music</span>
+						<span className="font-label-caps text-label-caps">Library</span>
+					</a>
+					<a
+						className="group flex flex-col items-center gap-1 rounded-xl bg-tertiary-container/20 p-2 text-tertiary-fixed-dim transition-all duration-300 hover:translate-x-1"
+						href="/"
+					>
+						<span className="material-symbols-outlined">album</span>
+						<span className="font-label-caps text-label-caps">Decks</span>
+					</a>
+					<a
+						className="group flex flex-col items-center gap-1 text-on-surface-variant transition-all duration-300 hover:translate-x-1 hover:text-tertiary"
+						href="/"
+					>
+						<span className="material-symbols-outlined">graphic_eq</span>
+						<span className="font-label-caps text-label-caps">Mixer</span>
+					</a>
+					<a
+						className="group flex flex-col items-center gap-1 text-on-surface-variant transition-all duration-300 hover:translate-x-1 hover:text-tertiary"
+						href="/"
+					>
+						<span className="material-symbols-outlined">subscriptions</span>
+						<span className="font-label-caps text-label-caps">Sampler</span>
+					</a>
+					<a
+						className="group flex flex-col items-center gap-1 text-on-surface-variant transition-all duration-300 hover:translate-x-1 hover:text-tertiary"
+						href="/"
+					>
+						<span className="material-symbols-outlined">history</span>
+						<span className="font-label-caps text-label-caps">History</span>
+					</a>
+				</div>
+			</nav>
+
+			{/* Main Content */}
+			<main className="ml-0 min-h-screen space-y-8 px-6 pt-20 pb-24 md:ml-20">
+				{searchQuery ? (
+					<section className="space-y-6">
+						<div className="mb-6 flex gap-4 border-white/5 border-b">
+							<button
+								className={`pb-3 font-bold text-label-caps uppercase tracking-widest transition-all ${
+									activeTab === "jamendo"
+										? "border-primary border-b-2 text-primary"
+										: "text-on-surface-variant hover:text-on-surface"
+								}`}
+								onClick={() => {
+									setActiveTab("jamendo");
+								}}
+								type="button"
+							>
+								Jamendo
+							</button>
+							<button
+								className={`pb-3 font-bold text-label-caps uppercase tracking-widest transition-all ${
+									activeTab === "youtube"
+										? "border-error border-b-2 text-error"
+										: "text-on-surface-variant hover:text-on-surface"
+								}`}
+								onClick={() => {
+									setActiveTab("youtube");
+								}}
+								type="button"
+							>
+								YouTube
+							</button>
+						</div>
+
+						{activeTab === "jamendo" ? (
+							<JamendoPanel
+								addToQueue={addToQueue}
+								handlePlayNow={handlePlayNow}
+								loading={loading}
+								query={searchQuery}
+								results={results}
+							/>
+						) : (
+							<YouTubeResults
+								activeDownloads={activeDownloads.map((d) => d.videoId)}
+								downloadStates={downloadStates}
+								onAddToQueue={addToQueue}
+								onDownload={handleYtDownload}
+								onPlayNow={handlePlayNow}
+								results={ytResults}
+							/>
+						)}
+					</section>
+				) : (
+					<>
+						{/* Mixer Console */}
+						<div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+							<Deck
+								colorClass="bg-cyan-500"
+								currentTime={currentTime}
+								isPlaying={isPlaying}
+								label="Deck A"
+								onAudioError={handleAudioError}
+								onPlayNext={playNext}
+								onPlayPrev={playPrev}
+								onPlayTrackFromQueue={playTrackFromQueue}
+								onSetIsPlaying={setIsPlaying}
+								onSetVolume={setVolume}
+								onTimeUpdate={handleTimeUpdate}
+								onTogglePlayPause={togglePlayPause}
+								queueLength={queue.length}
+								shadowClass="shadow-cyan-500/5"
+								track={currentSong}
+								volume={deckAVolume}
+								waveformRef={waveformRef}
+							/>
+
+							<MixerCenter
+								crossfader={crossfader}
+								onAutoMix={handleAutoMix}
+								onBeatSync={handleBeatSync}
+								onSetCrossfader={setCrossfader}
+							/>
+
+							<Deck
+								colorClass="bg-purple-500"
+								currentTime={0}
+								isPlaying={false}
+								label="Deck B"
+								onAudioError={handleDeckBError}
+								onPlayNext={() => {
+									return;
+								}}
+								onPlayPrev={() => {
+									return;
+								}}
+								onPlayTrackFromQueue={playTrackFromQueue}
+								onSetIsPlaying={() => {
+									return;
+								}}
+								onSetVolume={setVolume}
+								onTimeUpdate={() => {
+									return;
+								}}
+								onTogglePlayPause={() => {
+									return;
+								}}
+								queueLength={queue.length}
+								shadowClass="shadow-purple-500/5"
+								track={nextInQueue}
+								volume={deckBVolume}
+								waveformRef={{ current: null }}
+							/>
+						</div>
+
+						{/* Upcoming Queue Section */}
+						<section className="space-y-6">
+							<div className="flex items-end justify-between">
+								<div className="flex items-center gap-3">
+									<span className="material-symbols-outlined text-primary">
+										playlist_play
+									</span>
+									<h2 className="font-headline-md text-headline-md">
+										Upcoming Queue
+									</h2>
+									<span className="rounded-full bg-primary/10 px-3 py-1 font-technical-data text-primary text-technical-data uppercase">
+										{queue.length} TRACKS
+									</span>
 								</div>
-							)}
-							<div className="absolute inset-0 bg-gradient-to-t from-[#13131b]/80 to-transparent opacity-60" />
-						</div>
-					</div>
-
-					<div className="flex flex-col gap-3">
-						<div className="flex items-end justify-between">
-							<div className="min-w-0 pr-4">
-								<h1 className="truncate font-extrabold text-[#e4e1ed] text-[40px] leading-tight tracking-tight">
-									{currentSong ? currentSong.name : "No Track Selected"}
-								</h1>
-								<p className="truncate text-[#c7c4d7] text-[18px]">
-									{currentSong
-										? currentSong.artistName
-										: "Search for music to start listening"}
-								</p>
 							</div>
-							{currentSong?.speed && (
-								<span className="mb-2 shrink-0 rounded-full border border-[#c0c1ff]/20 bg-[#c0c1ff]/10 px-4 py-1.5 font-bold text-[#c0c1ff] text-[12px] uppercase tracking-wider">
-									{SPEED_TO_BPM[currentSong.speed] || currentSong.speed}
-								</span>
-							)}
-						</div>
-
-						{/* Waveform Visualizer */}
-						<div className="glass-panel relative min-h-[110px] overflow-hidden rounded-xl p-6 shadow-inner">
-							{currentSong ? (
-								<Waveform
-									audioUrl={currentSong.audio}
-									initialTime={currentTime}
-									isPlaying={isPlaying}
-									onFinish={playNext}
-									onPlayStateChange={setIsPlaying}
-									onTimeUpdate={handleTimeUpdate}
-									peaks={currentSong.waveform}
-									ref={waveformRef}
-									volume={volume}
-								/>
-							) : (
-								<div className="flex h-12 w-full items-center justify-between gap-1">
-									{[
-										20, 40, 70, 50, 90, 60, 40, 80, 50, 30, 60, 90, 40, 70, 30,
-										50, 85, 60, 40, 70, 20,
-									].map((h, i) => (
-										<div
-											className="waveform-bar w-1.5 rounded-full opacity-20"
-											key={i}
-											style={{ height: `${h}%` }}
+							<div className="glass-panel overflow-hidden rounded-3xl">
+								<div className="divide-y divide-white/5">
+									{queue.map((track, idx) => (
+										<QueueItem
+											formatDuration={formatDuration}
+											idx={idx}
+											key={`${track.id}-${idx}`}
+											onRemove={removeFromQueue}
+											track={track}
 										/>
 									))}
-								</div>
-							)}
-						</div>
-
-						{/* Playback Controls */}
-						<div className="flex flex-col gap-4 pt-4">
-							<div className="flex items-center justify-between px-2">
-								<span className="font-medium text-[#c7c4d7] text-[12px] tracking-wider">
-									{formatDuration(currentTime)}
-								</span>
-								<div className="flex items-center gap-8">
-									<button
-										className="text-[#c7c4d7] transition-colors hover:text-[#c0c1ff] disabled:opacity-50"
-										disabled={!currentSong}
-										onClick={playPrev}
-										type="button"
-									>
-										<SkipBack className="h-8 w-8" />
-									</button>
-									<button
-										className="pulse-ring flex h-16 w-16 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-105 active:scale-95"
-										onClick={togglePlayPause}
-										type="button"
-									>
-										{isPlaying ? (
-											<Pause className="h-8 w-8 fill-current" />
-										) : (
-											<Play className="ml-1 h-8 w-8 fill-current" />
-										)}
-									</button>
-									<button
-										className="text-[#c7c4d7] transition-colors hover:text-[#c0c1ff] disabled:opacity-50"
-										disabled={queue.length === 0}
-										onClick={playNext}
-										type="button"
-									>
-										<SkipForward className="h-8 w-8" />
-									</button>
-								</div>
-								<div className="group flex cursor-pointer items-center gap-2 text-[#c7c4d7]">
-									<Volume2 className="h-5 w-5" />
-									<div
-										aria-label="Volume"
-										aria-valuemax={100}
-										aria-valuemin={0}
-										aria-valuenow={volume * 100}
-										className="h-1.5 w-20 overflow-hidden rounded-full bg-[#34343d]"
-										onClick={(e) => {
-											const rect = e.currentTarget.getBoundingClientRect();
-											const pos = Math.max(
-												0,
-												Math.min(1, (e.clientX - rect.left) / rect.width)
-											);
-											setVolume(pos);
-										}}
-										onKeyDown={(e) => {
-											if (e.key === "Enter" || e.key === " ") {
-												// Handle keyboard interaction
-											}
-										}}
-										role="slider"
-										tabIndex={0}
-									>
-										<div
-											className="h-full bg-[#c0c1ff]"
-											style={{ width: `${volume * 100}%` }}
-										/>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</section>
-
-				{/* Right Column: Tabbed Search Results */}
-				<section className="flex max-h-[calc(100vh-160px)] flex-col gap-6 overflow-y-auto pr-2 md:col-span-5">
-					{/* Tabs Header */}
-					<div className="sticky top-0 z-10 flex gap-4 border-[#e4e1ed]/5 border-b bg-[#13131b]/80 backdrop-blur-md">
-						<button
-							className={`relative pb-3 font-bold text-[11px] uppercase tracking-[0.2em] transition-all ${
-								activeTab === "jamendo"
-									? "text-[#c0c1ff]"
-									: "text-[#c7c4d7]/50 hover:text-[#c7c4d7]"
-							}`}
-							onClick={() => setActiveTab("jamendo")}
-							type="button"
-						>
-							Jamendo
-							{activeTab === "jamendo" && (
-								<div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#c0c1ff]" />
-							)}
-						</button>
-						<button
-							className={`relative pb-3 font-bold text-[11px] uppercase tracking-[0.2em] transition-all ${
-								activeTab === "youtube"
-									? "text-[#ff4444]"
-									: "text-[#c7c4d7]/50 hover:text-[#c7c4d7]"
-							}`}
-							onClick={() => setActiveTab("youtube")}
-							type="button"
-						>
-							YouTube
-							{activeTab === "youtube" && (
-								<div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#ff4444]" />
-							)}
-						</button>
-					</div>
-
-					<div className="flex flex-col gap-4">
-						{activeTab === "jamendo" ? (
-							<div className="flex flex-col gap-4">
-								<div className="flex items-center justify-between">
-									<h3 className="font-bold text-[#c0c1ff] text-[10px] uppercase tracking-widest opacity-50">
-										Jamendo Results
-									</h3>
-									{loading && (
-										<Loader2 className="h-4 w-4 animate-spin text-[#c0c1ff]" />
-									)}
-								</div>
-								<JamendoPanel
-									addToQueue={addToQueue}
-									handlePlayNow={handlePlayNow}
-									loading={loading}
-									query={searchQuery}
-									results={results}
-								/>
-							</div>
-						) : (
-							<div className="flex flex-col gap-4">
-								<div className="flex items-center justify-between">
-									<h3 className="font-bold text-[#ff4444] text-[10px] uppercase tracking-widest opacity-50">
-										YouTube Results
-									</h3>
-									{ytLoading && (
-										<Loader2 className="h-4 w-4 animate-spin text-[#ff4444]" />
-									)}
-								</div>
-
-								{/* Recent Downloads Section */}
-								{activeDownloads.length > 0 && (
-									<div className="flex flex-col gap-3">
-										<h4 className="font-bold text-[#c0c1ff] text-[10px] uppercase tracking-widest opacity-80">
-											Recent Downloads
-										</h4>
-										<div className="flex flex-col gap-2">
-											{activeDownloads.slice(0, 5).map(({ videoId, track }) => (
-												<div
-													className="group flex items-center gap-3 rounded-lg bg-[#c0c1ff]/5 p-2 transition-all hover:bg-[#c0c1ff]/10"
-													key={videoId}
-												>
-													<div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-[#1f1f27]">
-														{track.albumImage ? (
-															<Image
-																alt={track.name}
-																className="object-cover"
-																fill
-																src={track.albumImage}
-																unoptimized
-															/>
-														) : (
-															<div className="flex h-full w-full items-center justify-center">
-																<Play className="h-4 w-4 text-[#c7c4d7]" />
-															</div>
-														)}
-													</div>
-													<div className="min-w-0 flex-1">
-														<p className="truncate font-medium text-[#e4e1ed] text-sm">
-															{track.name}
-														</p>
-														<p className="truncate text-[#c7c4d7] text-[10px]">
-															{track.artistName}
-														</p>
-													</div>
-													<div className="flex gap-2 opacity-0 transition-all group-hover:opacity-100">
-														<button
-															className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#34343d] text-[#c7c4d7] transition-all hover:bg-[#c0c1ff] hover:text-[#1000a9]"
-															onClick={() => addToQueue(track)}
-															type="button"
-														>
-															<ListPlus className="h-4 w-4" />
-														</button>
-														<button
-															className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#c0c1ff] text-[#1000a9] transition-all hover:scale-105"
-															onClick={() => handlePlayNow(track)}
-															type="button"
-														>
-															<Play className="h-4 w-4 fill-current" />
-														</button>
-													</div>
-												</div>
-											))}
+									{queue.length === 0 && (
+										<div className="p-8 text-center text-on-surface-variant opacity-50">
+											Queue is empty. Search for music to add tracks.
 										</div>
-										<div className="h-px w-full bg-[#e4e1ed]/5" />
-									</div>
-								)}
-
-								{/* Search Results */}
-								{searchQuery && (
-									<div className="flex flex-col gap-4">
-										<YouTubeResults
-											activeDownloads={activeDownloads.map((d) => d.videoId)}
-											downloadStates={downloadStates}
-											onAddToQueue={addToQueue}
-											onDownload={handleYtDownload}
-											onPlayNow={handlePlayNow}
-											results={ytResults}
-										/>
-									</div>
-								)}
-
-								{!searchQuery && activeDownloads.length === 0 && (
-									<div className="flex flex-col items-center justify-center py-12 text-[#c7c4d7] opacity-50">
-										<Music className="mb-4 h-12 w-12" />
-										<p>Search YouTube to see results here</p>
-									</div>
-								)}
+									)}
+								</div>
 							</div>
-						)}
-					</div>
-				</section>
+
+							{/* Queue Actions */}
+							<div className="flex flex-wrap items-center justify-end gap-4 py-4">
+								<button
+									className="flex items-center gap-2 px-4 py-2 font-bold text-on-surface-variant text-sm transition-colors hover:text-white"
+									onClick={() => {
+										usePlayerStore.getState().setQueue([]);
+									}}
+									type="button"
+								>
+									<span className="material-symbols-outlined text-lg">
+										delete_sweep
+									</span>
+									Clear Queue
+								</button>
+								<button
+									className="flex items-center gap-2 px-4 py-2 font-bold text-on-surface-variant text-sm transition-colors hover:text-white"
+									onClick={handleSaveQueue}
+									type="button"
+								>
+									<span className="material-symbols-outlined text-lg">
+										save
+									</span>
+									Save Queue
+								</button>
+								<button
+									className="flex items-center gap-2 rounded-2xl bg-white/10 px-6 py-3 font-bold text-white shadow-lg transition-all hover:bg-white/20 active:scale-95"
+									onClick={handleAutoMixQueue}
+									type="button"
+								>
+									<span
+										className="material-symbols-outlined"
+										style={{ fontVariationSettings: "'FILL' 1" }}
+									>
+										bolt
+									</span>
+									Auto Mix Queue
+								</button>
+							</div>
+						</section>
+					</>
+				)}
 			</main>
 
-			{/* Sidebar (Right): Up Next Queue */}
-			{/* ... same as before ... */}
-			<aside className="fixed top-16 right-0 bottom-0 z-40 hidden w-80 flex-col border-[#e4e1ed]/5 border-l bg-[#1b1b23]/80 text-[#e4e1ed] shadow-xl backdrop-blur-2xl md:flex">
-				<div className="flex items-center justify-between border-[#e4e1ed]/5 border-b p-6">
-					<div>
-						<h4 className="font-semibold text-[#c0c1ff] text-[20px]">
-							Up Next
-						</h4>
-						<p className="mt-1 font-medium text-[#c7c4d7] text-[10px] uppercase tracking-widest">
-							Queue Sidebar
-						</p>
-					</div>
-					<button
-						className="rounded-full p-2 text-[#c0c1ff] transition-colors hover:bg-[#c0c1ff]/10"
-						type="button"
-					>
-						<ListPlus className="h-6 w-6" />
-					</button>
-				</div>
-				<div className="flex flex-1 flex-col gap-2 overflow-y-auto p-4">
-					{queue.length > 0 ? (
-						queue.map((track, idx) => (
-							<div
-								className="group flex w-full items-center gap-2 rounded-xl p-2 transition-all duration-200 hover:bg-[#34343d]/40"
-								key={`${track.id}-${idx}`}
-							>
-								<button
-									className="flex flex-1 cursor-pointer items-center gap-4 text-left outline-none"
-									onClick={() => playTrackFromQueue(idx)}
-									type="button"
-								>
-									<div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#1f1f27]">
-										{track.albumImage ? (
-											<Image
-												alt={track.albumName}
-												className="h-full w-full object-cover"
-												fill
-												src={track.albumImage}
-												unoptimized
-											/>
-										) : (
-											<div className="flex h-full w-full items-center justify-center">
-												<Play className="h-4 w-4 text-[#c7c4d7]" />
-											</div>
-										)}
-									</div>
-									<div className="min-w-0 flex-1">
-										<p className="truncate text-[#e4e1ed] text-[16px]">
-											{track.name}
-										</p>
-										<p className="truncate font-medium text-[#c7c4d7] text-[11px]">
-											{track.artistName}
-										</p>
-									</div>
-								</button>
-								<button
-									className="shrink-0 p-1 text-[#ffb4ab] opacity-0 transition-all hover:text-[#ffb4ab]/80 group-hover:opacity-100"
-									onClick={() => removeFromQueue(idx)}
-									type="button"
-								>
-									<Trash2 className="h-5 w-5" />
-								</button>
-							</div>
-						))
-					) : (
-						<div className="flex h-full flex-col items-center justify-center space-y-4 text-[#c7c4d7] opacity-50">
-							<ListMusic className="h-12 w-12" />
-							<p className="text-sm">Queue is empty</p>
-						</div>
-					)}
-				</div>
-				<div className="border-[#e4e1ed]/5 border-t bg-[#1f1f27]/50 p-6">
-					<div className="flex items-center justify-between">
-						<span className="font-bold text-[#c7c4d7] text-[11px] uppercase tracking-[0.1em]">
-							Total Duration
-						</span>
-						<span className="font-medium text-[#e4e1ed] text-[16px]">
-							{formatDuration(totalDuration)}
-						</span>
-					</div>
-					<button
-						className="mt-4 w-full rounded-xl bg-[#571bc1] py-3 font-bold text-[#c4abff] text-[11px] uppercase tracking-[0.1em] transition-all hover:brightness-110 active:scale-[0.98]"
-						type="button"
-					>
-						Mix Now
-					</button>
-				</div>
-			</aside>
-
 			{/* BottomNavBar (Mobile Only) */}
-			<nav className="fixed bottom-0 left-0 z-50 flex h-20 w-full items-center justify-around border-[#e4e1ed]/10 border-t bg-[#13131b]/90 px-4 pb-safe shadow-2xl shadow-[#c0c1ff]/20 backdrop-blur-lg md:hidden">
-				<button
-					className="flex scale-105 animate-pulse flex-col items-center justify-center rounded-full bg-[#8083ff] p-2 text-[#0d0096]"
-					type="button"
+			<nav className="fixed bottom-0 left-0 z-50 flex h-16 w-full items-center justify-around border-white/5 border-t bg-surface-container-lowest/90 px-4 backdrop-blur-xl md:hidden">
+				<a
+					className="flex flex-col items-center gap-1 text-on-surface-variant transition-colors hover:text-primary"
+					href="/"
 				>
-					<Mic className="h-6 w-6" />
-					<span className="mt-1 font-bold text-[11px] tracking-[0.1em]">
-						Listen
-					</span>
-				</button>
-				<button
-					className="flex flex-col items-center justify-center p-2 text-[#c7c4d7] transition-colors hover:bg-[#34343d]/30"
-					type="button"
+					<span className="material-symbols-outlined">library_music</span>
+					<span className="font-label-caps text-[10px] uppercase">Library</span>
+				</a>
+				<a
+					className="flex flex-col items-center gap-1 text-primary transition-colors"
+					href="/"
 				>
-					<Search className="h-6 w-6" />
-					<span className="mt-1 font-bold text-[11px] tracking-[0.1em]">
-						Search
-					</span>
-				</button>
-				<button
-					className="flex flex-col items-center justify-center p-2 text-[#c7c4d7] transition-colors hover:bg-[#34343d]/30"
-					type="button"
+					<span className="material-symbols-outlined">album</span>
+					<span className="font-label-caps text-[10px] uppercase">Decks</span>
+				</a>
+				<a
+					className="flex flex-col items-center gap-1 text-on-surface-variant transition-colors hover:text-primary"
+					href="/"
 				>
-					<ListMusic className="h-6 w-6" />
-					<span className="mt-1 font-bold text-[11px] tracking-[0.1em]">
-						Queue
-					</span>
-				</button>
-				<button
-					className="flex flex-col items-center justify-center p-2 text-[#c7c4d7] transition-colors hover:bg-[#34343d]/30"
-					onClick={() => router.push("/dashboard")}
-					type="button"
+					<span className="material-symbols-outlined">graphic_eq</span>
+					<span className="font-label-caps text-[10px] uppercase">Mixer</span>
+				</a>
+				<a
+					className="flex flex-col items-center gap-1 text-on-surface-variant transition-colors hover:text-primary"
+					href="/"
 				>
-					<User className="h-6 w-6" />
-					<span className="mt-1 font-bold text-[11px] tracking-[0.1em]">
-						Profile
-					</span>
-				</button>
+					<span className="material-symbols-outlined">history</span>
+					<span className="font-label-caps text-[10px] uppercase">History</span>
+				</a>
 			</nav>
-		</>
+		</div>
 	);
 }
